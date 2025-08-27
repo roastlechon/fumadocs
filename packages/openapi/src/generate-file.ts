@@ -108,9 +108,9 @@ interface BaseName {
 }
 
 interface IndexItem {
-  path: string;
-  title?: string;
-  description?: string;
+  path: string | ((document: ProcessedDocument['document']) => string);
+  title?: string | ((document: ProcessedDocument['document']) => string);
+  description?: string | ((document: ProcessedDocument['document']) => string);
   /**
    * Only include items from specific input schema ids
    */
@@ -216,7 +216,7 @@ export async function generateFilesOnly(
   }
 
   if (options.index) {
-    files.push(...generateIndexFiles(documentFiles, options));
+    files.push(...generateIndexFiles(documentFiles, schemas, options));
   }
 
   beforeWrite?.(files);
@@ -411,8 +411,46 @@ function getOutputPathFromRoute(path: string): string {
   );
 }
 
+/**
+ * Helper function to resolve a property that can be either a static string or a function
+ */
+function resolveIndexProperty(
+  property: string | ((document: ProcessedDocument['document']) => string),
+  document: ProcessedDocument['document'],
+): string {
+  return typeof property === 'function' ? property(document) : property;
+}
+
+/**
+ * Get the document for a specific schema ID, handling cases where multiple schemas might exist
+ */
+function getDocumentForSchema(
+  schemaId: string,
+  schemas: Record<string, ProcessedDocument>,
+): ProcessedDocument['document'] | null {
+  // Try exact match first
+  let schema = schemas[schemaId];
+
+  if (!schema) {
+    // Try without ./ prefix if it exists
+    const normalizedId = schemaId.startsWith('./')
+      ? schemaId.slice(2)
+      : schemaId;
+    schema = schemas[normalizedId];
+  }
+
+  if (!schema) {
+    // Try with ./ prefix if it doesn't exist
+    const prefixedId = schemaId.startsWith('./') ? schemaId : `./${schemaId}`;
+    schema = schemas[prefixedId];
+  }
+
+  return schema ? schema.document : null;
+}
+
 function generateIndexFiles(
   generatedFiles: Map<string, OutputFile[]>,
+  schemas: Record<string, ProcessedDocument>,
   options: Config,
 ): OutputFile[] {
   const files: OutputFile[] = [];
@@ -435,14 +473,27 @@ function generateIndexFiles(
     content.push('<Cards>');
     const files: OutputFile[] = [];
     if (item.only) {
-      for (let id of item.only) {
-        if (id.startsWith('./')) id = id.slice(2);
+      for (const id of item.only) {
+        // Try to find the schema with exact match first, then try normalized paths
+        let result = generatedFiles.get(id);
 
-        const result = generatedFiles.get(id);
-        if (!result)
+        if (!result) {
+          // Try without ./ prefix if it exists
+          const normalizedId = id.startsWith('./') ? id.slice(2) : id;
+          result = generatedFiles.get(normalizedId);
+        }
+
+        if (!result) {
+          // Try with ./ prefix if it doesn't exist
+          const prefixedId = id.startsWith('./') ? id : `./${id}`;
+          result = generatedFiles.get(prefixedId);
+        }
+
+        if (!result) {
           throw new Error(
             `${id} does not exist on "input", available: ${Array.from(generatedFiles.keys())}.`,
           );
+        }
         files.push(...result);
       }
     } else {
@@ -461,10 +512,59 @@ function generateIndexFiles(
     }
 
     content.push('</Cards>');
+
+    // Resolve dynamic properties for the index item
+    let resolvedTitle: string;
+    let resolvedDescription: string | undefined;
+
+    if (item.only && item.only.length > 0) {
+      // If 'only' is specified, use the first schema's document to resolve functions
+      const firstSchemaId = item.only[0];
+      const document = getDocumentForSchema(firstSchemaId, schemas);
+
+      if (document) {
+        resolvedTitle = item.title
+          ? resolveIndexProperty(item.title, document)
+          : 'Overview';
+        resolvedDescription = item.description
+          ? resolveIndexProperty(item.description, document)
+          : undefined;
+      } else {
+        // Fallback to static values if document not found
+        resolvedTitle =
+          typeof item.title === 'string' ? item.title : 'Overview';
+        resolvedDescription =
+          typeof item.description === 'string' ? item.description : undefined;
+      }
+    } else {
+      // If no 'only' specified, use static values or first available document
+      const firstSchema = Object.values(schemas)[0];
+      const document = firstSchema?.document;
+
+      if (
+        document &&
+        (typeof item.title === 'function' ||
+          typeof item.description === 'function')
+      ) {
+        resolvedTitle = item.title
+          ? resolveIndexProperty(item.title, document)
+          : 'Overview';
+        resolvedDescription = item.description
+          ? resolveIndexProperty(item.description, document)
+          : undefined;
+      } else {
+        // Fallback to static values
+        resolvedTitle =
+          typeof item.title === 'string' ? item.title : 'Overview';
+        resolvedDescription =
+          typeof item.description === 'string' ? item.description : undefined;
+      }
+    }
+
     return generateDocument(
       {
-        title: item.title ?? 'Overview',
-        description: item.description,
+        title: resolvedTitle,
+        description: resolvedDescription,
       },
       content.join('\n'),
       options,
@@ -474,10 +574,39 @@ function generateIndexFiles(
   const outputDir = path.join(cwd, output);
 
   for (const item of items) {
+    // Resolve the path property
+    let resolvedPath: string;
+
+    if (item.only && item.only.length > 0) {
+      // If 'only' is specified, use the first schema's document to resolve path function
+      const firstSchemaId = item.only[0];
+      const document = getDocumentForSchema(firstSchemaId, schemas);
+
+      if (document) {
+        resolvedPath = resolveIndexProperty(item.path, document);
+      } else {
+        // Fallback to static value if document not found
+        resolvedPath = typeof item.path === 'string' ? item.path : 'index';
+      }
+    } else {
+      // If no 'only' specified, use static value or first available document
+      const firstSchema = Object.values(schemas)[0];
+      const document = firstSchema?.document;
+
+      if (document && typeof item.path === 'function') {
+        resolvedPath = resolveIndexProperty(item.path, document);
+      } else {
+        // Fallback to static value
+        resolvedPath = typeof item.path === 'string' ? item.path : 'index';
+      }
+    }
+
     files.push({
       path: path.join(
         outputDir,
-        path.extname(item.path).length === 0 ? `${item.path}.mdx` : item.path,
+        path.extname(resolvedPath).length === 0
+          ? `${resolvedPath}.mdx`
+          : resolvedPath,
       ),
       content: fileContent(item),
     });

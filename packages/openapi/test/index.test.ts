@@ -151,6 +151,84 @@ describe('Generate documents', () => {
       './out/products-with-index.json',
     );
   });
+
+  test('Generate Files - with index using function signatures', async () => {
+    const out = await generateFilesOnly({
+      input: ['./fixtures/products.yaml', './fixtures/petstore.yaml'],
+      output: './out',
+      per: 'operation',
+      name: {
+        algorithm: 'v1',
+      },
+      index: {
+        url: {
+          baseUrl: '/docs/apis',
+          contentDir: './out',
+        },
+        items: [
+          {
+            title: (document) => document.info.title,
+            description: (document) =>
+              document.info.description || 'No description available',
+            path: (document) =>
+              `${document.info.title.toLowerCase().replace(/\s+/g, '-')}/index`,
+            only: ['./fixtures/products.yaml'],
+          },
+          {
+            title: (document) => document.info.title,
+            description: (document) =>
+              document.info.description || 'No description available',
+            path: (document) =>
+              `${document.info.title.toLowerCase().replace(/\s+/g, '-')}/index`,
+            only: ['./fixtures/petstore.yaml'],
+          },
+        ],
+      },
+      cwd,
+    });
+
+    await expect(stringifyOutput(out)).toMatchFileSnapshot(
+      './out/products-with-function-index.json',
+    );
+  });
+
+  test('Generate Files - with mixed static and function index items', async () => {
+    const out = await generateFilesOnly({
+      input: ['./fixtures/products.yaml'],
+      output: './out',
+      per: 'operation',
+      name: {
+        algorithm: 'v1',
+      },
+      index: {
+        url: {
+          baseUrl: '/docs',
+          contentDir: './out',
+        },
+        items: [
+          {
+            title: 'Static Overview',
+            description: 'A static description',
+            path: 'static-index',
+            only: ['./fixtures/products.yaml'],
+          },
+          {
+            title: (document) => `Dynamic: ${document.info.title}`,
+            description: (document) =>
+              `Generated from: ${document.info.description}`,
+            path: (document) =>
+              `dynamic-${document.info.title.toLowerCase().replace(/\s+/g, '-')}`,
+            only: ['./fixtures/products.yaml'],
+          },
+        ],
+      },
+      cwd,
+    });
+
+    await expect(stringifyOutput(out)).toMatchFileSnapshot(
+      './out/products-with-mixed-index.json',
+    );
+  });
 });
 
 function stringifyOutput(output: OutputFile[]) {
