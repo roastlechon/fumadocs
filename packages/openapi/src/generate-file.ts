@@ -112,6 +112,12 @@ interface IndexItem {
   title?: string | ((document: ProcessedDocument['document']) => string);
   description?: string | ((document: ProcessedDocument['document']) => string);
   /**
+   * When true, description will be included in the body content instead of frontmatter.
+   * The description will be automatically escaped for safe MDX rendering.
+   * @defaultValue false
+   */
+  includeDescription?: boolean;
+  /**
    * Only include items from specific input schema ids
    */
   only?: string[];
@@ -412,6 +418,20 @@ function getOutputPathFromRoute(path: string): string {
 }
 
 /**
+ * Escape special characters that could break MDX rendering
+ */
+function escapeMDXContent(content: string): string {
+  return (
+    content
+      /* eslint-disable no-useless-escape */
+      .replaceAll(/\{/gm, '\\{') // Escape opening braces
+      .replaceAll(/\}/gm, '\\}') // Escape closing braces
+      .replaceAll(/</gm, '\<') // Escape opening angle brackets (for JSX)
+      .replaceAll(/>/gm, '\>')
+  ); // Escape closing angle brackets (for JSX)
+}
+
+/**
  * Helper function to resolve a property that can be either a static string or a function
  */
 function resolveIndexProperty(
@@ -561,12 +581,28 @@ function generateIndexFiles(
       }
     }
 
+    // Handle includeDescription functionality
+    let bodyContent = '';
+    let frontmatterDescription = resolvedDescription;
+
+    if (item.includeDescription && resolvedDescription) {
+      // Escape description for safe MDX rendering and include in body
+      const escapedDescription = escapeMDXContent(resolvedDescription);
+      bodyContent = `${escapedDescription}\n\n`;
+
+      // Don't include description in frontmatter when it's in the body
+      frontmatterDescription = undefined;
+    }
+
+    // Append the Cards content to body
+    bodyContent += content.join('\n');
+
     return generateDocument(
       {
         title: resolvedTitle,
-        description: resolvedDescription,
+        description: frontmatterDescription,
       },
-      content.join('\n'),
+      bodyContent,
       options,
     );
   }

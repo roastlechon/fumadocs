@@ -229,6 +229,84 @@ describe('Generate documents', () => {
       './out/products-with-mixed-index.json',
     );
   });
+
+  test('Generate Files - with includeDescription functionality', async () => {
+    const out = await generateFilesOnly({
+      input: ['./fixtures/products.yaml'],
+      output: './out',
+      per: 'operation',
+      name: {
+        algorithm: 'v1',
+      },
+      index: {
+        url: {
+          baseUrl: '/docs',
+          contentDir: './out',
+        },
+        items: [
+          {
+            title: 'API with Description in Body',
+            description: 'This description will appear in the body content',
+            path: 'body-description-index',
+            includeDescription: true,
+            only: ['./fixtures/products.yaml'],
+          },
+          {
+            title: 'API with Description in Frontmatter',
+            description: 'This description will appear in frontmatter',
+            path: 'frontmatter-description-index',
+            includeDescription: false,
+            only: ['./fixtures/products.yaml'],
+          },
+        ],
+      },
+      cwd,
+    });
+
+    await expect(stringifyOutput(out)).toMatchFileSnapshot(
+      './out/products-with-include-description.json',
+    );
+  });
+
+  test('Generate Files - with includeDescription and special characters', async () => {
+    const out = await generateFilesOnly({
+      input: ['./fixtures/products.yaml'],
+      output: './out',
+      per: 'operation',
+      name: {
+        algorithm: 'v1',
+      },
+      index: {
+        url: {
+          baseUrl: '/docs',
+          contentDir: './out',
+        },
+        items: [
+          {
+            title: 'API with Special Characters',
+            description:
+              'This API handles {users} and <components> with special chars like { } < >',
+            path: 'special-chars-index',
+            includeDescription: true,
+            only: ['./fixtures/products.yaml'],
+          },
+          {
+            title: (document) => document.info.title,
+            description: (document) =>
+              `Dynamic description with {braces} and <brackets>: ${document.info.description}`,
+            path: 'dynamic-special-chars-index',
+            includeDescription: true,
+            only: ['./fixtures/products.yaml'],
+          },
+        ],
+      },
+      cwd,
+    });
+
+    await expect(stringifyOutput(out)).toMatchFileSnapshot(
+      './out/products-with-special-chars.json',
+    );
+  });
 });
 
 function stringifyOutput(output: OutputFile[]) {

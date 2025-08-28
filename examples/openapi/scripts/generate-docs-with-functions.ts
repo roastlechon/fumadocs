@@ -34,6 +34,10 @@ void generateFiles({
         return `${slug}/index`;
       },
 
+      // Include description in body content instead of frontmatter
+      // This is useful for longer descriptions that benefit from being in the main content
+      includeDescription: true,
+
       // Only include files from this specific schema
       only: [schemaPath],
     })) as any, // Type assertion to work around TypeScript inference issues
